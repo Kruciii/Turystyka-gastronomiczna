@@ -16,8 +16,6 @@ Badane zjawisko dotyczy rozwoju turystyki gastronomicznej w krajach UE, rozumian
 	2) zbudowanie rankingow kilkoma metodami,
 	3) ocena zgodnosci metod i wybor metody najlepiej odzwierciedlajacej zjawisko.
 
-## Badania literaturowe
-Przeglad literatury powinien wskazac autorow i wnioski dotyczace roli dziedzictwa kulinarnego, poziomu cen oraz infrastruktury gastronomicznej w konkurencyjnosci regionow, a takze ograniczen metod WAP (wrazliwosc na dobor cech i metode agregacji). [Uzupelnij o faktycznie cytowane pozycje].
 
 ## Krotki opis metod wykorzystanych w pracy
 Zastosowano wielowymiarowa analize porownawcza: selekcje zmiennych na podstawie wspolczynnika zmiennosci Vj i korelacji, a nastepnie porzadkowanie liniowe metoda Hellwiga, TOPSIS, BZW, syntetyczna miara K. Kukuly, suma rang oraz metode iteracyjna. Zgodnosc rankingow porownano na podstawie korelacji rang Spearmana. Opis ma charakter skrocony, bez przepisywania z podrecznikow.
@@ -28,10 +26,7 @@ Wyniki generowane sa w notatniku [1.ipynb](1.ipynb) na podstawie danych z [data.
 ## Podsumowanie i wnioski
 Cele badania zostaly zrealizowane: dokonano selekcji cech, zbudowano rankingi kilkoma metodami oraz porownano ich zgodnosc. W czolowce metod klasycznych najczesciej pojawiaja sie Wlochy i Francja, a nizsze pozycje zajmuja Czechy i Polska. Jako metode wiodaca przyjeto sume rang z uwagi na najwyzsza srednia zgodnosc z innymi rankingami. Analiza przestrzenna (np. Moran I) nie byla wykonana z powodu braku danych o polozeniu, a dynamika w czasie nie byla badana z powodu braku danych wieloletnich.
 
-## Bibliografia
-Wpisz tylko faktycznie cytowane pozycje, np.:
-1. Autor A., Tytul, Wydawnictwo, Rok.
-2. Autor B., Tytul artykulu, Czasopismo, Rok.
+
 
 ## Dane i srodowisko
 - Dane: [data.csv](data.csv)
