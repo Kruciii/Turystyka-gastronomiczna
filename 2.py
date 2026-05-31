@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.figure_factory as ff
+
+from opisy_zmiennych import get_imputation_note, get_variable_description
 
 st.set_page_config(page_title="Turystyka kulinarna — Raport Analityczny", layout="wide")
 
@@ -142,7 +143,7 @@ def compute_rankings(df: pd.DataFrame, id_col: str, cols: list, destimulants: li
     d_minus = np.sqrt(((X_vec - anti)**2).sum(axis=1))
     topsis_score = d_minus / (d_plus + d_minus)
 
-    # 5. Suma rang
+    # 5. Suma rang (odwrocona: wyzsza wartosc = lepsza pozycja)
     X_ranks = pd.DataFrame(index=X.index)
     for col in cols:
         if col in destimulants:
@@ -150,6 +151,7 @@ def compute_rankings(df: pd.DataFrame, id_col: str, cols: list, destimulants: li
         else:
             X_ranks[col] = X[col].rank(ascending=False, method="average")
     sum_ranks_score = X_ranks.sum(axis=1)
+    sum_ranks_score = sum_ranks_score.max() - sum_ranks_score
 
     # 6. Metoda iteracyjna
     remaining = X_kukula.copy()
@@ -173,24 +175,70 @@ def compute_rankings(df: pd.DataFrame, id_col: str, cols: list, destimulants: li
     })
     return results, X_kukula
 
-def morans_i_manual(y: pd.Series, coords: np.ndarray, k=4):
+def build_knn_weights(coords: np.ndarray, k: int = 4):
     from scipy.spatial import cKDTree
+
     tree = cKDTree(coords)
-    dists, idxs = tree.query(coords, k=k + 1)
-    n = len(y)
+    _, idxs = tree.query(coords, k=k + 1)
+    n = len(coords)
     W = np.zeros((n, n))
     for i in range(n):
-        for j_idx, dist in zip(idxs[i][1:], dists[i][1:]):
-            W[i, j_idx] = 1.0 / (dist + 1e-9)
-            
-    row_sums = W.sum(axis=1, keepdims=True)
-    row_sums[row_sums == 0] = 1
-    W = W / row_sums
+        for j_idx in idxs[i][1:]:
+            W[i, j_idx] = 1.0
 
-    z = (y - y.mean()).values
+    row_sums = W.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    return W / row_sums
+
+def build_queen_weights(gdf):
+    try:
+        sindex = gdf.sindex
+    except Exception:
+        sindex = None
+
+    n = len(gdf)
+    W = np.zeros((n, n))
+    geoms = gdf.geometry
+
+    for i, geom in enumerate(geoms):
+        if geom is None or geom.is_empty:
+            continue
+
+        if sindex is not None:
+            candidates = list(sindex.intersection(geom.bounds))
+        else:
+            candidates = range(n)
+
+        for j in candidates:
+            if i == j:
+                continue
+            other = geoms.iloc[j]
+            if other is None or other.is_empty:
+                continue
+            if geom.touches(other):
+                W[i, j] = 1.0
+
+    row_sums = W.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    return W / row_sums
+
+def moran_i_stat(y: np.ndarray, W: np.ndarray):
+    n = len(y)
+    z = y - y.mean()
     S0 = W.sum()
-    I = (n / S0) * (z @ W @ z) / (z @ z)
-    return float(I)
+    return float((n / S0) * (z @ W @ z) / (z @ z))
+
+def moran_permutation_test(y: np.ndarray, W: np.ndarray, n_perm: int = 999, seed: int = 42):
+    rng = np.random.default_rng(seed)
+    observed = moran_i_stat(y, W)
+    perm_stats = []
+    for _ in range(n_perm):
+        y_perm = rng.permutation(y)
+        perm_stats.append(moran_i_stat(y_perm, W))
+
+    perm_stats = np.array(perm_stats)
+    p_value = (np.sum(np.abs(perm_stats) >= abs(observed)) + 1) / (n_perm + 1)
+    return observed, p_value, perm_stats
 
 def map_countries(df_results: pd.DataFrame):
     try:
@@ -231,6 +279,43 @@ def map_countries(df_results: pd.DataFrame):
     if merged.empty:
         return None, "Błąd łączenia danych mapy z wynikami."
     return merged, None
+
+def drop_small_islands(gdf, min_ratio: float = 0.02, keep_largest_only: bool = True):
+    try:
+        from shapely.geometry import MultiPolygon
+    except Exception:
+        return gdf
+
+    gdf = gdf[gdf.geometry.notna()].copy()
+    if gdf.empty:
+        return gdf
+
+    orig_crs = gdf.crs
+    try:
+        gdf = gdf.to_crs("EPSG:3035")
+    except Exception:
+        return gdf
+
+    def _clean(geom):
+        if geom is None or geom.is_empty:
+            return geom
+        if geom.geom_type == "MultiPolygon":
+            parts = list(geom.geoms)
+            if not parts:
+                return geom
+            areas = [p.area for p in parts]
+            max_area = max(areas)
+            if keep_largest_only:
+                keep = [parts[areas.index(max_area)]]
+            else:
+                keep = [p for p, a in zip(parts, areas) if a >= max_area * min_ratio]
+            if not keep:
+                keep = [parts[areas.index(max_area)]]
+            return MultiPolygon(keep)
+        return geom
+
+    gdf["geometry"] = gdf.geometry.apply(_clean)
+    return gdf.to_crs(orig_crs)
 
 def main():
     st.title("Wielowymiarowa analiza porównawcza potencjału turystyki kulinarnej w wybranych krajach europejskich")
@@ -305,12 +390,22 @@ def main():
         with col_desc1:
             st.markdown("<span style='color:green;font-weight:bold;'>STYMULANTY (Zasoby i potencjał wzrostu)</span>", unsafe_allow_html=True)
             for s in stimulants:
-                st.markdown(f"* **{s}**: Zmienna odzwierciedla potencjał bazy gastronomicznej oraz nasycenie atrakcjami kulinarnymi destynacji. Wyższe wartości bezpośrednio stymulują atrakcyjność turystyczną kraju [2, 4].")
+                desc = get_variable_description(s)
+                note = get_imputation_note(s)
+                if note:
+                    st.markdown(f"* **{s}**: {desc}  \n_{note}_")
+                else:
+                    st.markdown(f"* **{s}**: {desc}")
         
         with col_desc2:
             st.markdown("<span style='color:red;font-weight:bold;'>DESTYMULANTY (Bariery i ograniczenia)</span>", unsafe_allow_html=True)
             for d in destimulants:
-                st.markdown(f"* **{d}**: Reprezentuje ekonomiczne i strukturalne bariery rozwoju. Wysoki względny poziom cen ogranicza powszechną dostępność oferty, a wysoka sezonowość ruchu w III kwartale destabilizuje całoroczną płynność finansową przedsiębiorstw usługowych [75].")
+                desc = get_variable_description(d)
+                note = get_imputation_note(d)
+                if note:
+                    st.markdown(f"* **{d}**: {desc}  \n_{note}_")
+                else:
+                    st.markdown(f"* **{d}**: {desc}")
 
         st.dataframe(df, height=200)
 
@@ -340,10 +435,28 @@ def main():
         with col2:
             st.subheader("Macierz korelacji")
             if numeric_cols:
-                fig2, ax2 = plt.subplots(figsize=(6, 3.5))
-                sns.heatmap(df[numeric_cols].corr(), annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax2, square=False, annot_kws={"size": 8})
-                ax2.tick_params(labelsize=8)
-                st.pyplot(fig2)
+                short_labels = {col: f"X{idx+1}" for idx, col in enumerate(numeric_cols)}
+                corr = df[numeric_cols].corr()
+                corr = corr.rename(index=short_labels, columns=short_labels)
+                fig2 = px.imshow(
+                    corr,
+                    text_auto=".2f",
+                    color_continuous_scale="RdBu_r",
+                    zmin=-1,
+                    zmax=1,
+                    aspect="equal",
+                    height=520,
+                )
+                fig2.update_layout(
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_title=None,
+                    yaxis_title=None,
+                )
+                fig2.update_xaxes(tickangle=0)
+                st.plotly_chart(fig2, use_container_width=True)
+                st.markdown("**Legenda zmiennych (macierz korelacji):**")
+                for col in numeric_cols:
+                    st.markdown(f"- **{short_labels[col]}**: {col}")
 
     results, X_minmax = compute_rankings(df, id_col, sel["selected"], destimulants)
 
@@ -354,15 +467,31 @@ def main():
         else:
             st.subheader("Wyniki Syntetycznych Mierników Rozwoju SMR")
             st.dataframe(results, height=250)
-            st.markdown("*Uwaga: W przypadku metody Suma rang interpretacja jest odwrotna — niższa wartość oznacza wyższą lokatę na liście.*")
+            st.markdown("*Uwaga: W metodzie Suma rang zastosowano odwrócenie skali, aby wyższa wartość oznaczała wyższą pozycję.*")
+
+            method_notes = {
+                "TOPSIS": "Ranking bazuje na odleglosci od rozwiazania idealnego; dobrze rozroznia liderow i maruderow w ukladzie wielowymiarowym.",
+                "Hellwig": "Ocena opiera sie na wzorcu rozwoju; wyniki sa stabilne przy standaryzacji i dobrze wskazuja kraje zblizone do wzorca.",
+                "BZW": "Wskaznik ilorazowy podkresla relacje do maksimum; premiuje kraje osiagajace wysokie wartosci w wielu cechach.",
+                "Kukula": "Unitaryzacja zerowana daje czytelny ranking względny; latwo porownac poziom rozwoju w skali 0-1.",
+                "Suma rang": "Porzadek wynika z pozycji w kazdej cesze; metoda jest odporna na skale, ale mniej czula na roznice wartosci.",
+                "Iteracyjna": "Ranking powstaje przez sukcesywne wybieranie najlepszych; moze silniej akcentowac kraje o zrownowazonym profilu.",
+            }
             
+            st.subheader("Ranking wybranej metody")
+            method = st.selectbox("Wybierz metode rankingu:", results.columns.tolist(), index=0)
+            ranking = results[method].sort_values(ascending=False).to_frame(name="Wartosc")
+            ranking.insert(0, "Pozycja", range(1, len(ranking) + 1))
+            st.dataframe(ranking, height=300)
+            st.markdown(f"**Wniosek (metoda {method}):** {method_notes.get(method, '')}")
+
             fig3 = px.bar(
-                results.sort_values(by="TOPSIS", ascending=False).reset_index(), 
+                results.sort_values(by=method, ascending=False).reset_index(), 
                 x="index", 
-                y="TOPSIS", 
-                labels={"index": "Państwo", "TOPSIS": "Wartość miernika"},
+                y=method, 
+                labels={"index": "Państwo", method: "Wartość miernika"},
                 height=350,
-                title="Ranking państw metodą TOPSIS"
+                title=f"Ranking państw metodą {method}"
             )
             fig3.update_traces(marker_color='#2ca02c')
             st.plotly_chart(fig3, use_container_width=True)
@@ -370,12 +499,19 @@ def main():
             st.subheader("Klasyfikacja Homogeniczna Metodą Warda")
             try:
                 import scipy.cluster.hierarchy as sch
-                Z = sch.linkage(X_minmax, method='ward')
-                fig_ward, ax_ward = plt.subplots(figsize=(8, 3.5))
                 labels = df[id_col].values if id_col in df.columns else df.index.values
-                sch.dendrogram(Z, labels=labels, ax=ax_ward, leaf_rotation=45)
-                ax_ward.set_ylabel("Odległość wiązania")
-                st.pyplot(fig_ward)
+                fig_ward = ff.create_dendrogram(
+                    X_minmax.values,
+                    labels=labels,
+                    linkagefun=lambda x: sch.linkage(x, method="ward"),
+                )
+                fig_ward.update_layout(
+                    height=350,
+                    xaxis_title="Państwo",
+                    yaxis_title="Odległość wiązania",
+                    margin=dict(l=10, r=10, t=10, b=10),
+                )
+                st.plotly_chart(fig_ward, use_container_width=True)
             except ImportError:
                 st.info("Zainstaluj bibliotekę scipy, aby wyświetlić dendrogram.")
 
@@ -388,20 +524,76 @@ def main():
             if merged is None:
                 st.warning(f"Błąd mapowania: {err}")
             else:
-                fig4, ax4 = plt.subplots(1, 1, figsize=(9, 4.5))
-                ax4.set_xlim([-20, 45])
-                ax4.set_ylim([35, 70])
-                merged.plot(column="TOPSIS", legend=True, cmap="YlGnBu", ax=ax4, edgecolor="black", missing_kwds={"color": "lightgrey"})
-                ax4.axis("off")
-                st.pyplot(fig4)
+                merged_plot = drop_small_islands(merged, keep_largest_only=True).reset_index(drop=True).copy()
+                merged_plot["feature_id"] = merged_plot.index.astype(str)
+                geojson = merged_plot.__geo_interface__
+                fig4 = px.choropleth(
+                    merged_plot,
+                    geojson=geojson,
+                    locations="feature_id",
+                    featureidkey="properties.feature_id",
+                    color="TOPSIS",
+                    hover_name="Państwo",
+                    color_continuous_scale=[
+                        "#f7fbff",
+                        "#c6dbef",
+                        "#6baed6",
+                        "#3182bd",
+                        "#08519c",
+                    ],
+                    height=420,
+                )
+                fig4.update_geos(
+                    fitbounds="locations",
+                    visible=False,
+                    projection_type="mercator",
+                    bgcolor="rgba(0,0,0,0)",
+                )
+                fig4.update_layout(
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig4, use_container_width=True)
                 
                 with np.errstate(invalid='ignore'):
-                    centroids = np.vstack(merged.geometry.to_crs('+proj=cea').centroid.to_crs(merged.crs).apply(lambda p: (p.x, p.y)).values)
-                
-                y = merged["TOPSIS"].fillna(merged["TOPSIS"].mean()).reset_index(drop=True)
+                    centroids = np.vstack(merged_plot.geometry.to_crs('+proj=cea').centroid.to_crs(merged_plot.crs).apply(lambda p: (p.x, p.y)).values)
+
+                y = merged_plot["TOPSIS"].fillna(merged_plot["TOPSIS"].mean()).reset_index(drop=True).to_numpy()
+                y_std = (y - y.mean()) / (y.std(ddof=1) if y.std(ddof=1) != 0 else 1.0)
+
                 try:
-                    moran = morans_i_manual(y, centroids, k=4)
-                    st.markdown(f"**Globalny Wskaźnik Morana I (przybliżenie k=4 sąsiadów):** {moran:.4f}")
+                    weight_method = st.selectbox(
+                        "Macierz wag przestrzennych",
+                        ["k-NN (centroidy)", "Wspolna granica (queen)"],
+                        index=0,
+                    )
+                    if weight_method == "k-NN (centroidy)":
+                        k = st.slider("Liczba sasiedow k", min_value=2, max_value=10, value=4, step=1)
+                        W = build_knn_weights(centroids, k=k)
+                        weight_label = f"k-NN, k={k}"
+                    else:
+                        W = build_queen_weights(merged_plot)
+                        weight_label = "queen"
+
+                    moran_i, p_value, _ = moran_permutation_test(y_std, W, n_perm=999, seed=42)
+                    st.markdown(
+                        f"**Globalny Wskaźnik Morana I ({weight_label}):** {moran_i:.4f}  "
+                        f"**p-value (test permutacyjny):** {p_value:.4f}"
+                    )
+
+                    z = y_std
+                    lag = W @ z
+                    fig_moran = px.scatter(
+                        x=z,
+                        y=lag,
+                        labels={"x": "Zmienna standaryzowana (Z)", "y": "Lag przestrzenny (Wz)"},
+                        title="Wykres Morana",
+                        height=320,
+                    )
+                    fig_moran.add_hline(y=0, line_width=1, line_color="#888")
+                    fig_moran.add_vline(x=0, line_width=1, line_color="#888")
+                    st.plotly_chart(fig_moran, use_container_width=True)
                 except Exception as e:
                     st.warning(f"Błąd obliczeń Moran's I: {e}")
 
