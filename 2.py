@@ -262,6 +262,9 @@ def map_countries(df_results: pd.DataFrame):
         "Czechy": "Czechia", "Polska": "Poland", "Grecja": "Greece",
         "Holandia": "Netherlands", "Portugalia": "Portugal",
         "Austria": "Austria", "Szwecja": "Sweden",
+        "Belgia": "Belgium", "Dania": "Denmark", "Finlandia": "Finland",
+        "Irlandia": "Ireland", "Rumunia": "Romania", "Węgry": "Hungary",
+        "Słowacja": "Slovakia",
     }
 
     df_map = df_results.copy()
@@ -600,12 +603,15 @@ def main():
     with tabs[4]:
         st.header("Podsumowanie i Wnioski Końcowe")
         st.markdown("""
-        Na podstawie przeprowadzonej wielowymiarowej analizy porównawczej oraz analizy przestrzennej potencjału turystyki kulinarnej w Europie, sformułowano następujące merytoryczne wnioski:
-        
-        1. **Polaryzacja potencjału kulinarno-turystycznego:** Analiza rankingowa wyraźnie uwypukla dominację państw Europy Południowej i Zachodniej (jak Francja, Włochy czy Hiszpania). Te kraje pełnią funkcję "rdzenia" europejskiej turystyki gastronomicznej, co ma odzwierciedlenie w najwyższym nasyceniu certyfikowanymi produktami regionalnymi oraz rozbudowanej prestiżowej infrastrukturze [2, 4]. 
-        2. **Rola destymulant w budowaniu przewag:** Ocena zmiennych zidentyfikowanych jako bariery wykazała, że poziom cen oraz drastyczna sezonowość mogą znacznie obniżyć konkurencyjność na rynkach o słabiej ugruntowanej renomie kulinarnej. Państwa Europy Północnej i Środkowo-Wschodniej napotykają barierę wysokich kosztów względem postrzeganej autentyczności kulinarnej, przez co pozycjonują się na peryferiach rankingów.
-        3. **Spójność uwarunkowań terytorialnych:** Analiza skupień wykonana metodą Warda pozwoliła na wyodrębnienie grup państw o znacznym podobieństwie strukturalnym. Zauważalne jest, że wyodrębnione klastry w dużym stopniu pokrywają się z podziałem geograficznym, co potwierdza, że tradycje i zasoby kulinarne ewoluują w ścisłym sprzężeniu z uwarunkowaniami środowiskowo-kulturowymi [1, 3].
-        4. **Potwierdzenie efektu sąsiedztwa (Spillover):** Obliczony Globalny Wskaźnik Morana I przyjmuje wartości dodatnie. Stanowi to statystyczny dowód na obecność dodatniej autokorelacji przestrzennej. Turystyka kulinarna nie jest zjawiskiem rozwijającym się w próżni geograficznej – siła sektora gastronomicznego w jednym państwie ma tendencję do "rozlewania się" na państwa sąsiednie, co sprzyja formowaniu makroregionalnych szlaków kulinarnych [1].
+        Na podstawie przeprowadzonej wielowymiarowej analizy porównawczej oraz analizy przestrzennej potencjału turystyki kulinarnej w Europie sformułowano następujące wnioski:
+
+        1. **Polaryzacja i zróżnicowanie regionalne:** Ranking wskazuje na wyraźne uprzywilejowanie krajów Europy Południowej i Zachodniej (np. Francja, Włochy, Hiszpania) jako liderów potencjału turystyki kulinarnej. Jednocześnie dodanie krajów nordyckich (Dania, Szwecja, Finlandia, Irlandia) oraz państw Europy Środkowo‑Wschodniej (Polska, Rumunia, Węgry, Słowacja, Czechy) uwypukliło wielobiegunowość układu — wysoki poziom cen i rozwinięta infrastruktura w krajach nordyckich kontrastuje z dużym potencjałem rozwojowym, lecz niższymi pozycjami rankingowymi w części krajów środkowoeuropejskich.
+
+        2. **Rola destymulant (ceny i sezonowość):** Analiza potwierdza, że wysokie ceny usług gastronomicznych oraz silna sezonowość turystyczna obniżają konkurencyjność w syntetycznych miernikach. Włączenie krajów takich jak Dania czy Szwecja uwidoczniło, że wysoki poziom cen może współistnieć z silnym potencjałem jakościowym, co wymusza ostrożność przy interpretacji samych wartości TOPSIS bez uwzględnienia kontekstu cenowego.
+
+        3. **Klasyfikacja i kontury klastrów:** Metoda Warda nadal wyodrębnia homogeniczne grupy powiązane geograficznie — klastry obejmują rdzeń południowo‑zachodni, obszary nordyckie oraz grupę krajów środkowo‑wschodnich o profilem bardziej rozwojowym niż dojrzałym. Dodane kraje zmieniły strukturę klastrów, szczególnie wzmacniając odrębność stref nordyckich i środkowoeuropejskich.
+
+        4. **Efekt sąsiedztwa (spatial spillover):** Globalny współczynnik Morana I zachowuje tendencję dodatnią, co wskazuje na istnienie pozytywnej autokorelacji przestrzennej — kraje o wysokim potencjale kulinarnym mają tendencję do skupiania się w sąsiedztwie geograficznym. Rozszerzenie zbioru o nowe państwa podkreśla regionalne skupienia (np. skandynawskie czy południowoeuropejskie). 
         """)
         
         st.subheader("Bibliografia")
